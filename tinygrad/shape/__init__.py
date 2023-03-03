@@ -37,7 +37,8 @@ class View:
     return Variable.sum(ret)
 
   # generate an expression if you have a variable or expression for each index
-  def expr_idxs(self, idxs, offset=0):
+  def expr_idxs(self, offset=0, idxs=None):
+    if idxs is None: idxs = [f"idx{i}" for i in range(len(self.shape))]
     return Variable.sum([Variable.num(self.offset+offset)] + [Variable(idx, 0, sh-1)*st for idx,sh,st in zip(idxs, self.shape, self.strides) if sh != 1 and st != 0])
 
 class ZeroView:
@@ -60,7 +61,7 @@ class ZeroView:
       acc *= ns
     return Variable.ands(expr)
 
-  def expr_idxs(self, idxs, offset=0): raise NotImplementedError("ZeroView doesn't support expr_idxs")
+  def expr_idxs(self, offset=0, idxs=None): raise NotImplementedError("ZeroView doesn't support expr_idxs")
 
 ViewTypes = Union[View, ZeroView]
 
@@ -133,8 +134,7 @@ class ShapeTracker:
         self.simplify()
 
   def expr_idxs(self, offset=0, idxs=None):
-    if idxs is None: idxs = [f"idx{i}" for i in range(len(self.shape))]
-    return self._expr_idx(self.views[-1].expr_idxs(idxs, offset))
+    return self._expr_idx(self.views[-1].expr_idxs(offset, idxs))
 
   def expr_node(self, idx='idx'):
     return self._expr_idx(self.views[-1].expr_node(Variable(idx, 0, prod(self.shape)-1)))
