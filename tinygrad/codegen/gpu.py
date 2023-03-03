@@ -3,8 +3,8 @@ from collections import defaultdict
 from typing import Optional, List, Tuple, Dict, Set, Final, NamedTuple
 from tinygrad.ops import UnaryOps, BinaryOps, ReduceOps, LazyOp, Op, ASTRunner
 from tinygrad.codegen.ast import ASTKernel, Token, Types
-from tinygrad.shape.symbolic import Node, ModNode, DivNode, render_python
-from tinygrad.shape import ShapeTracker
+from tinygrad.shape.symbolic import Node, ModNode, DivNode, render_python, divn, modn
+from tinygrad.shape import ShapeTracker, View
 from tinygrad.helpers import getenv, DEBUG, prod
 
 # div is different in cl than python
@@ -26,6 +26,7 @@ class GPULanguage(NamedTuple):
   float4 : Optional[str] = None
 
 def to_image_idx(st:ShapeTracker, offset:int, base_shape:Tuple[int, ...], validhacks=False):
+  #idxy_fake, _ = st.expr_idxs(offset)
   assert len(st.views) == 1 or len(st.views) == 3
   if len(st.views) == 3:
     from tinygrad.shape import merge_views
@@ -33,11 +34,65 @@ def to_image_idx(st:ShapeTracker, offset:int, base_shape:Tuple[int, ...], validh
     assert new_view is not None
   else:
     new_view = st.views[0]
-  idxy, _ = st.expr_idxs(offset)
+  assert new_view.offset%4 == 0
+  # TODO: split the view to x and y
+  old_offset = new_view.offset // 4
+  offset_x = modn(old_offset, base_shape[1])
+  offset_y = divn(old_offset, base_shape[1])
+
+  assert offset%4 == 0
+  offset_x += modn(offset//4, base_shape[1])
+  offset_y += divn(offset//4, base_shape[1])
+  #print(old_offset, base_shape, offset_x, offset_y)
+
+  idxs = [f"idx{i}" for i in range(len(new_view.shape))]
+  idx_x = []
+  shape_x = []
+  stride_x = []
+  idx_y = []
+  shape_y = []
+  stride_y = []
+  for i,(s,stride) in enumerate(zip(new_view.shape, new_view.strides)):
+    assert stride%4 == 0
+    stride //= 4
+    if stride % base_shape[1] == 0:
+      idx_y.append(idxs[i])
+      shape_y.append(s)
+      stride_y.append(stride//base_shape[1])
+    elif s*stride <= base_shape[1]:
+      idx_x.append(idxs[i])
+      shape_x.append(s)
+      stride_x.append(stride)
+    else:
+      # have to split the index :(
+      assert False
+
+  view_x = View(tuple(shape_x), tuple(stride_x), offset_x)
+  view_y = View(tuple(shape_y), tuple(stride_y), offset_y)
+  #print(view_x, view_y)
+  idx = view_x.expr_idxs(0, idx_x)
+  idy = view_y.expr_idxs(0, idx_y)
+
+  ret = f"(int2)({idx.render(render_cl)}, {idy.render(render_cl)})"
+  print(ret, base_shape)
+  return ret
+
+
+
+  new_view.offset = 0
+  print(new_view)
+
+  idxy = new_view.expr_idxs(offset)
+  #print(idxy.render(), idxy_fake.render())
+  #assert idxy.render() == idxy_fake.render(), list(zip(idxy.nodes, [x.render() for x in idxy.nodes]))
   idx = (idxy//4)%base_shape[1]
   idy = (idxy//(4*base_shape[1]))%base_shape[0]
   if validhacks: idx, idy = [x.a if isinstance(x, ModNode) and x.a.max < x.b*2 else x for x in (idx, idy)]
-  return f"(int2)({idx.render(render_cl)}, {idy.render(render_cl)})"
+  idx += offset_x
+  idy += offset_y
+  ret = f"(int2)({idx.render(render_cl)}, {idy.render(render_cl)})"
+  print(ret)
+  return ret
 
 class GPUCodegen(ASTKernel):
   lang : GPULanguage = GPULanguage()

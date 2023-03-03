@@ -22,6 +22,7 @@ class Node:
   def __mul__(self, b:int):
     if b == 0: return NumNode(0)
     elif b == 1: return self
+    elif self.min == self.max: return NumNode(self.min*b)
     if isinstance(self, MulNode): return MulNode(self.a, self.b*b)
     # distribute mul into sum
     if isinstance(self, SumNode): return Variable.sum([x*b for x in self.nodes])
@@ -92,7 +93,7 @@ class Node:
     nodes, num_nodes = partition(nodes, lambda x: not isinstance(x, NumNode))
     num_sum = sum([x.b for x in num_nodes])
     # TODO: these can't be merged due to image indexing. it's not clear which idx to group the offset with
-    if num_sum >= 0: nodes.append(NumNode(num_sum))
+    if True or num_sum >= 0: nodes.append(NumNode(num_sum))
     else:
       lte_0, rest = partition(num_nodes, lambda x: x.b <= 0)
       nodes += [NumNode(x.b) for x in sorted(lte_0, key=lambda x:x.b) if x.b != 0]
