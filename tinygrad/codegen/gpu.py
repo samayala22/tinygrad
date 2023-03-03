@@ -26,6 +26,17 @@ class GPULanguage(NamedTuple):
   float4 : Optional[str] = None
 
 def to_image_idx(st:ShapeTracker, offset:int, base_shape:Tuple[int, ...], validhacks=False):
+  idxy, _ = st.expr_idxs(0)
+  idx = (idxy//4)%base_shape[1]
+  idy = (idxy//(4*base_shape[1]))%base_shape[0]
+  if validhacks: idx, idy = [x.a if isinstance(x, ModNode) and x.a.max < x.b*2 else x for x in (idx, idy)]
+  assert offset%4 == 0
+  idx += modn(offset//4, base_shape[1])
+  idy += divn(offset//4, base_shape[1])
+  ret = f"(int2)({idx.render(render_cl)}, {idy.render(render_cl)})"
+  print(ret)
+  return ret
+
   #idxy_fake, _ = st.expr_idxs(offset)
   assert len(st.views) == 1 or len(st.views) == 3
   if len(st.views) == 3:
